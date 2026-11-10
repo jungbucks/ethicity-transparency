@@ -127,7 +127,7 @@ test('reflect step: two free-text answers per case, empty is allowed, other case
  assert.equal(E.canAdvance(s),true,'empty reflection can move on');
  s=E.reduce(s,{type:'reflect',key:'photo',q:'q1',text:'원본 사진'});s=E.reduce(s,{type:'reflect',key:'writing',q:'q1',text:'x'});s=E.reduce(s,{type:'reflect',key:'photo',q:'q9',text:'x'});
  assert.deepEqual(s.reflections,{...E.initial().reflections,photo:{q1:'원본 사진',q2:''}});
- s=E.reduce(s,{type:'reflect',key:'photo',q:'q2',text:'가'.repeat(5000)});assert.equal(s.reflections.photo.q2.length,4000,'no hard limit in UI, only a storage cap');
+ s=E.reduce(s,{type:'reflect',key:'photo',q:'q2',text:'가'.repeat(5000)});assert.equal(s.reflections.photo.q2.length,4000,'storage cap (the input box has the same limit, see review 6)');
  const t=at(2);assert.deepEqual(E.reduce(t,{type:'reflect',key:'photo',q:'q1',text:'x'}).reflections.photo.q1,'','only on the reflect screen');
 });
 test('ending: final note needs a completed game, then the report opens; reporter fields are cleaned',()=>{
@@ -184,4 +184,133 @@ test('photo outcomes are real crops: automatic leaves 담이 out, the full choic
 });
 test('revisit cannot jump past the furthest scene',()=>{
  let s=at(3);s=E.reduce(s,{type:'revisit',scene:10});assert.equal(s.scene,3);
+});
+// ── 2026-11-10 외부 검토(review.md) 반영 ──
+// 1. 사건 4 자료는 마을별 집계·항목 비중·버스 횟수뿐이다. 담이 한 사람이 왜 떨어졌는지(참여 횟수·항목별 점수·합격선)는 자료에 없으므로
+//    결과·수첩·서술 틀 어디에서도 '개인 탈락 이유를 알았다'고 말하지 않는다.
+test('review 1: case 4 never claims 담이\'s own reason is known; the record-matching result names a criterion that may be unfavourable and asks for a re-check',()=>{
+ const C=D.cases.camp,all=JSON.stringify(C);
+ assert.doesNotMatch(all,/왜 떨어졌는지[^”"']{0,12}알(겠|았|게 됐)/,'no "now I know why I failed"');
+ const acc=C.choose.options.find(o=>o.id==='accurate'),said=acc.reaction.filter(([w])=>w==='dami').map(l=>l[1]).join(' ');
+ assert.match(said,/불리할 수 있는 기준/);assert.match(said,/내 점수도 다시 확인받고 싶어/);
+ // 자료에는 담이 개인 기록이 없다(있다면 이 검사를 함께 고친다)
+ assert.deepEqual(Object.keys(C.results.rows[0]).sort(),['apply','id','name','pass']);assert.ok(!/담이/.test(JSON.stringify([C.page,C.results,C.criteria])));
+ // 솔숲마을은 12명 가운데 1명이 붙었다: '다 떨어졌다'가 아니라 '거의 다'
+ const pine=C.results.rows.find(r=>r.target);assert.ok(pine.pass>0);
+ for(const [,t] of [...C.hook,...C.choose.options.flatMap(o=>o.reaction)])if(/떨어/.test(t)&&/(^|\s)다 떨어/.test(t))assert.match(t,/거의 다 떨어/,t);
+ // 아직 모르는 것은 그대로 모른다고 말한다
+ assert.match(C.follow.unknown,/아직 몰라/);assert.match(C.reflect.q2,/아직 확인하지 못한 것/);
+});
+// 2. 사진 사건 문장에 든 범위 말(만·모두·전부·늘·다)을 실제 자르기 좌표(engine AUTO·ALL·faces·FOLLOW_CROPS)와 맞춰 본다.
+//    새 문장에 범위 말이 들어가면 아래 표에 '무엇으로 확인했는지'를 적어야 통과한다.
+test('review 2: photo sentences with range words (만·모두·늘·다) agree with the real crops',()=>{
+ const W=1536,H=1024,FULL=[0,0,W,H],TORI=0,LULU=1,DAMI=2,P=D.cases.photo;
+ const overlaps=([x,y,w,h],[fx,fy,fw,fh])=>fx<x+w&&fx+fw>x&&fy<y+h&&fy+fh>y;
+ const cx=f=>f[0]+f[2]/2,bottom=f=>f[1]+f[3];
+ const counts=[0,0,0,0,0];for(const r of E.FOLLOW_CROPS)for(const i of E.cutFaces(r))counts[i]++;
+ const shownIn=E.truth.filter(t=>t==='shown').length,cutIn=E.truth.filter(t=>t==='cut').length;
+ // 도입: 자동으로 자른 사진에서 얼굴이 잘린 친구는 넷이다. '담이 얼굴만'은 사실이 아니고, 담이 얼굴은 조금도 남지 않는다.
+ assert.deepEqual(E.cutFaces(E.AUTO),[0,1,2,3]);
+ assert.equal(D.intro.title,'다섯 친구가 찍은 사진에서, 담이 얼굴이 사라졌다.');
+ assert.equal(overlaps(E.AUTO,E.faces[DAMI]),false,'담이 얼굴은 자동으로 자른 사진에 조금도 남지 않는다');
+ const allIn=r=>E.cutFaces(r).length===0;
+ const front=()=>{assert.equal(Math.max(...E.faces.map(bottom)),bottom(E.faces[DAMI]),'앞줄: 다섯 얼굴 가운데 가장 아래');
+  assert.equal([...E.faces].sort((a,b)=>cx(a)-cx(b)).indexOf(E.faces[DAMI]),2,'가운데: 왼쪽에서 셋째');
+  assert.equal(Math.min(...E.faces.map(f=>Math.abs(cx(f)-W/2))),Math.abs(cx(E.faces[DAMI])-W/2),'가운데: 사진 가운데에 가장 가깝다');};
+ const notCrop=()=>{}; // 자르기 범위가 아닌 것(기록·안내문 카드)을 말하는 문장
+ const audited={
+  '이 마을과 자료는 창작이에요. 실제 사례에서 문제의 구조만 참고했어요.':notCrop,
+  '원본 사진에는 다섯 친구가 모두 있고, 담이는 앞줄 가운데에 있다.':()=>{assert.ok(allIn(FULL));front();},
+  '원본에는 다섯 친구가 모두 나와요. 자동으로 자른 사진에는 오른쪽 부분만 남았어요.':()=>{assert.ok(allIn(FULL));assert.ok(E.AUTO[0]>=W/2,'자동으로 남긴 부분은 모두 사진 오른쪽 절반 안');},
+  '기록에는 점수만 있어. 왜 오른쪽이 8점인지는 어디에도 없어.':notCrop,
+  '모두 나오는 사진':()=>assert.ok(allIn(E.ALL)),
+  '모두 나오는 사진을 올렸어':()=>assert.ok(allIn(E.ALL)),
+  '게시판: 다섯 친구가 모두 나온 사진':()=>{assert.ok(allIn(E.ALL));assert.equal(E.faces.length,5);},
+  '이제 다 보여. 이게 우리가 올리고 싶던 사진이야.':()=>assert.ok(allIn(E.ALL)),
+  '같은 날 찍은 사진 여섯 장도 앱이 모두 자동으로 잘랐어.':()=>{assert.equal(E.FOLLOW_CROPS.length,6);for(const r of E.FOLLOW_CROPS)assert.ok(r[2]<W&&r[3]<H,'여섯 장 모두 원본보다 작게 잘렸다');},
+  // 판단할 말(일부러 틀린 주장): 정답이 '자료와 달라'여야 하고, 실제로 담이가 나온 사진이 있고 다른 친구도 잘린다.
+  '여섯 장을 보니, 이 AI는 담이만 늘 잘라.':()=>{assert.equal(E.followAnswers.photo,'different');assert.ok(shownIn>0,'늘 잘리지는 않는다');assert.ok(counts.some((n,i)=>i!==DAMI&&n>0),'담이만 잘리지는 않는다');},
+  'AI가 늘 가장 좋은 사진을 골라 줘요.':()=>assert.equal(E.noticeKind('photo','photo-best'),'promise'), // 지킬 수 없는 약속 카드
+  '점수 계산식을 전부 공개해요.':()=>assert.equal(E.noticeKind('photo','photo-formula'),'conflict'), // 부딪침 카드
+  '알리는 것도 좋지만, 계산식은 너무 어려워 오히려 안 읽히고 회사 기술 비밀과도 부딪쳐. 알리되 기준 요약만큼만.':notCrop
+ };
+ const texts=[];const walk=v=>{if(typeof v==='string')texts.push(v);else if(v&&typeof v==='object')Object.values(v).forEach(walk);};
+ walk(D.intro);walk(P);
+ const RANGE=/(?<!지)만(?=[\s.,?!”’)]|$)|모두|전부|(?<=^|\s)(늘|다)(?=\s)/;
+ const found=texts.filter(t=>RANGE.test(t));
+ assert.deepEqual(found.filter(t=>!audited[t]),[],'좌표와 맞춰 보지 않은 범위 말 문장');
+ assert.deepEqual(Object.keys(audited).filter(t=>!found.includes(t)),[],'지금은 없는 문장이 표에 남아 있음');
+ for(const t of found)audited[t]();
+ // 후속 조사: 묻는 말에 '담이만'을 미리 깔지 않는다. 숫자를 말하는 피드백은 세어 본 값과 같다.
+ assert.equal(P.follow.question,'다른 사진에서도 담이가 잘릴까?');
+ const NUM=['영','한','두','세','네','다섯','여섯'];
+ assert.equal(P.follow.judge.right,`맞아, 자료와 달라. 담이는 ${NUM[cutIn]} 장에서 잘렸지만 ${NUM[shownIn]} 장에서는 나왔고, 다른 친구들도 잘렸어.`);
+ assert.equal(P.follow.judge.wrong,`세어 본 결과를 다시 봐. 담이는 ${NUM[shownIn]} 장에서 나왔고, 루루는 ${NUM[counts[LULU]]} 장에서 잘렸어.`);
+ assert.ok(counts[TORI]>0);
+ // 결과 화면의 상태 글: 자동 사진에는 담이 얼굴이 없다
+ assert.equal(P.choose.options[0].status,'게시판: 담이 얼굴이 빠진 사진');assert.ok(E.cutFaces(E.outcome({cases:{photo:{final:'auto'}}},'photo').rect).includes(DAMI));
+});
+// 5. 부딪침(상충) 카드의 이유 문장: '…까지만 알리면 돼'처럼 그것만 알리면 충분하다고 읽히면 안 된다.
+//    '공개하지 않을 정보'와 '그래도 알릴 수 있는 것'을 함께 말하고, 같은 사건의 꼭 필요 카드를 모두 가리킨다. 법적 의무를 단정하지 않는다.
+test('review 5: clash reasons name what stays private and what can still be told, in line with the must cards',()=>{
+ const clash=(k,id)=>D.cases[k].notice.cards.find(c=>c.id===id).clash;
+ for(const k of E.CASES)for(const c of D.cases[k].notice.cards)if(c.clash){
+  assert.doesNotMatch(c.clash,/까지만/,c.id);assert.doesNotMatch(c.clash,/만 (알리면|알 수 있으면) 돼/,c.id+' reads as "this alone is enough"');
+  assert.doesNotMatch(c.clash,/의무|법으로|법에|반드시|해야만/,c.id+' no legal-duty claim');}
+ // 꼭 필요 카드마다 이유 문장이 그 내용을 '알릴 수 있는 것'으로 가리키는지(카드 → 이유 문장에 있어야 할 말)
+ const MUST={
+  writing:{id:'writing-patterns',keep:/패턴은 공개하지 않아도/,told:{'writing-human':/사람이 쓴 글에도 표시가 뜰 수 있다는 것/,'writing-teacher':/선생님이 확인한다는 것/}},
+  face:{id:'face-wall',keep:/사진은 공개하지 않아도/,told:{'face-use':/얼굴 인식을 쓴다는 것/,'face-staff':/직원이 확인한다는 것/,'face-report':/잘못 막혔을 때 알릴 곳/}},
+  camp:{id:'camp-everyone',keep:/이름과 점수는 공개하지 않아도/,told:{'camp-role':/AI를 어디에 썼는지/,'camp-office':/담당 부서/,'camp-appeal':/재검토를 신청하는 방법/}}};
+ for(const [k,m] of Object.entries(MUST)){const t=clash(k,m.id);
+  assert.equal(E.noticeKind(k,m.id),'conflict');assert.deepEqual(Object.keys(m.told).sort(),[...E.noticeCards[k].must].sort(),k+' every must card is covered');
+  assert.match(t,m.keep,k+' what stays private');assert.match(t,/알릴 수 있어/,k+' what can still be told');
+  for(const [id,re] of Object.entries(m.told))assert.match(t,re,id);}
+});
+// 6. 서술 상한(4000)은 그대로 두되, 저장할 때 자르는 단위가 입력칸 제한(textarea maxlength = UTF-16 단위)과 같아야 한다.
+//    이모지처럼 두 단위짜리 글자가 상한에 걸리면 반쪽을 남기지 않는다. 자른 글은 다시 넣어도, 저장했다 열어도 그대로다.
+const LONE=/[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/;
+const LONG={ko3999:'가'.repeat(3999),ko4000:'가'.repeat(4000),ko4001:'가'.repeat(4001),emojiFit:'😀'.repeat(2000),emojiOver:'😀'.repeat(2001),
+ emojiSplit:'가'.repeat(3999)+'😀',emojiMixed:'가'.repeat(3998)+'😀나',emojiTail:'가'.repeat(3990)+'👨‍👩‍👧‍👦'+'나'.repeat(20),lines:('가나다\n').repeat(1001)};
+// 정답대로 걸어가 그 장면에 선 상태(저장했다 열어도 살아남는 진짜 진행)
+function walkTo(goal){let s=E.initial();
+ while(s.scene<goal){const k=E.caseKey(s.scene),st=E.stepOf(s.scene);
+  if(st==='hook'&&k==='camp')s=E.reduce(s,{type:'ask',id:'who'});
+  if(st==='check')s=judgeAll(checkAll(s,k),k);
+  if(st==='choose'){s=E.reduce(s,{type:'choose',id:E.choices[k][0]});continue;}
+  if(st==='follow'){const m=E.followMarks[k];m.ids.forEach((id,i)=>{s=E.reduce(s,{type:'mark',id,value:k==='photo'?E.truth[i]:m.values[0]});});s=E.reduce(s,{type:'follow-judge',stamp:E.followAnswers[k]});}
+  if(st==='notice'){s=E.reduce(s,{type:'notice-pick',id:E.noticeCards[k].must[0]});s=E.reduce(s,{type:'notice-post'});}
+  s=E.reduce(s,{type:'next'});}
+ return s;}
+test('review 6: the text cap cuts at the same unit as the input box and never leaves half an emoji; cut text survives save and reload',()=>{
+ assert.equal(E.TEXT_MAX,4000);
+ const expectLen={ko3999:3999,ko4000:4000,ko4001:4000,emojiFit:4000,emojiOver:4000,emojiSplit:3999,emojiMixed:4000,emojiTail:3999,lines:4000} // emojiTail: 여러 글자를 이은 이모지는 낱글자 사이에서 끊길 수 있다(반쪽 글자만 안 남긴다);
+ assert.deepEqual(Object.keys(LONG),Object.keys(expectLen));
+ const atReflect=walkTo(E.sceneOf('photo','reflect')),atEnd=walkTo(E.END);assert.equal(atEnd.completed,true);
+ for(const [name,v] of Object.entries(LONG)){const c=E.clipText(v);
+  assert.equal(c.length,expectLen[name],name);assert.ok(v.startsWith(c),name+' is a prefix');assert.doesNotMatch(c,LONE,name+' no half emoji');
+  assert.equal(E.clipText(c),c,name+' cutting twice changes nothing');assert.equal(c===v,v.length<=4000,name+' short text untouched');
+  // 생각 정리·마지막 서술에 넣고 → 저장 → 다시 열기
+  let s=E.reduce(atReflect,{type:'reflect',key:'photo',q:'q1',text:v});assert.equal(s.reflections.photo.q1,c,name+' reflect');
+  assert.deepEqual(E.restore(JSON.stringify(s)),s,name+' reload');
+  const e=E.reduce(atEnd,{type:'note',text:v});assert.equal(e.finalNote,c,name+' note');assert.deepEqual(E.restore(JSON.stringify(e)),e,name+' note reload');}
+ assert.equal(E.clipText('가'.repeat(3999)+'\ud83d'),'가'.repeat(3999),'a lone half at the very end is dropped too');
+ assert.equal(E.clipText(3),'');assert.equal(E.clipText(''),'');
+});
+// 3. 사진의 글 설명(ui/case-photo.js)이 쓰는 기하: 얼굴이 틀 안에서 온전히 보이는지(in)·가장자리에 걸리는지(part)·안 보이는지(out), 어느 가장자리가 지나는지.
+test('review 3: faceIn agrees with cutFaces; edges and places come from the coordinates',()=>{
+ const FULL=[0,0,...E.PHOTO];assert.deepEqual(E.PHOTO,[1536,1024]);
+ for(const r of [FULL,E.AUTO,E.ALL,...E.FOLLOW_CROPS]){
+  const st=E.faces.map((_,i)=>E.faceIn(r,i));
+  assert.deepEqual(st.map((x,i)=>x.state==='in'?null:i).filter(i=>i!==null),E.cutFaces(r),'잘린 얼굴 = 온전히 보이지 않는 얼굴 '+r);
+  for(const x of st){assert.equal(x.edges.length>0,x.state==='part');assert.ok(['in','part','out'].includes(x.state));}}
+ // 자동으로 자른 사진: 토리·루루·담이는 안 보이고, 모아는 왼쪽 가장자리에 걸리고, 몽이만 온전하다
+ assert.deepEqual(E.faces.map((_,i)=>E.faceIn(E.AUTO,i).state),['out','out','out','part','in']);assert.deepEqual(E.faceIn(E.AUTO,3).edges,['left']);
+ // 후속 사진 3: 루루는 위쪽·오른쪽 가장자리에 걸린다. 사진 5: 담이 얼굴 오른쪽 끝이 틀 왼쪽 끝과 맞닿아 있을 뿐 안 보인다.
+ assert.deepEqual(E.faceIn(E.FOLLOW_CROPS[2],1),{state:'part',edges:['right','top']});assert.equal(E.faceIn(E.FOLLOW_CROPS[4],2).state,'out');
+ // 여섯 장에서 담이는 온전히 보이거나 아예 안 보인다(걸린 사진 없음) — 표시의 정답(truth)과 같다
+ assert.deepEqual(E.FOLLOW_CROPS.map(r=>E.faceIn(r,2).state==='in'?'shown':'cut'),E.truth);
+ // 자리(3×3): [가로 0 왼쪽·1 가운데·2 오른쪽, 세로 0 위·1 가운데·2 아래]
+ assert.deepEqual(E.faces.map(E.place),[[0,0],[1,0],[1,1],[1,0],[2,0]]);assert.deepEqual(E.place(E.AUTO),[2,0]);assert.deepEqual(E.place(FULL),[1,1]);
+ assert.deepEqual(E.place([0,700,300,300]),[0,2]);
 });

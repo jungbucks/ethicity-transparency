@@ -46,7 +46,9 @@ async function shot(p,name,full=false){await assets(p);await p.screenshot({path:
 async function discover(p,k,id,wrongFirst){
  await click(p,`[data-act="item"][data-id="${id}"]`);
  if(id==='photo-original'){
-  assert.deepEqual(await p.locator('.face-spot').evaluateAll(a=>a.map(b=>b.getAttribute('aria-label'))),['얼굴 1','얼굴 2','얼굴 3','얼굴 4','얼굴 5'],'face names do not reveal the answer');
+  {const names=await p.locator('.face-spot').evaluateAll(a=>a.map(b=>b.getAttribute('aria-label')));assert.deepEqual(names.map(n=>n.split(':')[0]),['얼굴 1','얼굴 2','얼굴 3','얼굴 4','얼굴 5']);
+   for(const n of names){assert.match(n,/^얼굴 \d: 왼쪽에서 (첫째|둘째|셋째|넷째|다섯째), 사진의 /,'face names say where, '+n);assert.doesNotMatch(n.replace(/ \(찾았어: [^)]*\)$/,''),/토리|루루|담이|모아|몽이/,'face names do not reveal the answer');}
+   assert.equal(await p.locator('details.photo-text summary').innerText(),'사진을 글로 살펴보기');}
   if(wrongFirst){await click(p,'[data-act="spot"][data-id="1"]');assert.match(await p.locator('.tap-hint').innerText(),/담이가 아니야/);}
   assert.equal(await p.locator('.body .task').count(),1);await click(p,'[data-act="spot"][data-id="2"]');assert.equal(await p.locator('.face-spot.found').count(),1);
   assert.equal(await p.locator('.body .task').count(),0,'find instruction hidden after 담이 is found');}
@@ -139,7 +141,7 @@ async function reflect(p,k,write){
  assert.equal(await p.locator('.empty-note:visible').count(),2);assert.match(await p.locator('.empty-note').first().innerText(),/작성 안 함/);
  for(const [q,t] of Object.entries(write||{})){await p.locator(`textarea[data-reflect="${q}"]`).fill(t);assert.equal((await state(p)).reflections[k][q],t,'autosaved '+q);}
  assert.equal(await p.locator('.empty-note:visible').count(),2-Object.keys(write||{}).length);
- if(write&&write.q1)assert.match(await p.locator('.count-n').first().innerText(),new RegExp('^'+[...write.q1].length+'자'));}
+ if(write&&write.q1)assert.match(await p.locator('.count-n').first().innerText(),new RegExp('^'+write.q1.length+'자'));}
 async function play(p,{tag,viewport,pick,judge,wrongFirst,shots,write={},note:finalNote='',notices={}}){
  const errors=[],external=[];p.on('pageerror',e=>errors.push(String(e)));p.on('request',r=>{if(!r.url().startsWith(url))external.push(r.url());});
  clicks=0;let judgments=0;
