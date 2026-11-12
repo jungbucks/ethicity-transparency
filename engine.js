@@ -1,6 +1,6 @@
 (function(root){
  'use strict';
- // 저장 version 7(2026-11-12 수정 요청: 사건 4 자료 넷(버스 쪽지)·판단 3 교체, 사건 5 후속 조사 판단 교체 — version 6 저장은 restore가 옮긴다). 사건 다섯 개, 사건마다 일곱 단계: hook(궁금한 것) → check(직접 확인 + 판단 셋) → choose(선택) → result(결과) → follow(후속 조사)
+ // 저장 version 8(2026-11-12 후속 요청: 사건 4 판단 3 다시 교체·마을별 결과에 참여 점수, 후속 조사 두 줄 — version 6·7 저장은 restore가 옮긴다). version 7(2026-11-12 수정 요청: 사건 4 자료 넷(버스 쪽지)·판단 3 교체, 사건 5 후속 조사 판단 교체 — version 6 저장은 restore가 옮긴다). 사건 다섯 개, 사건마다 일곱 단계: hook(궁금한 것) → check(직접 확인 + 판단 셋) → choose(선택) → result(결과) → follow(후속 조사)
  // → notice(만든 사람이라면: 미리 알리기) → reflect(생각 정리).
  // 마지막은 end(마무리 + 마지막 서술) → report(나의 조사 보고서). 질문 고르기(구청에 묻기)는 사건 4(camp)의 궁금한 것 화면에서 한다.
  // 장면 번호는 LAYOUT에서 계산한다: 0 프롤로그, 1~7 사진, 8~14 글, 15~21 얼굴, 22~28 구청 캠프, 29~35 은하수 그림, 36 마지막, 37 보고서.
@@ -31,9 +31,9 @@
  // 사건마다 판단 셋. 세 칸이 사건마다 한 번씩 정답이 된다.
  const answers={photo:['confirmed','different','unknown'],writing:['unknown','confirmed','different'],face:['different','confirmed','unknown'],camp:['unknown','different','confirmed'],share:['different','confirmed','unknown']};
  const followAnswers={photo:'different',writing:'confirmed',face:'unknown',camp:'different',share:'confirmed'};
- // 후속 조사 표시: 구청 캠프는 새 공개 페이지에서 달라진 말 하나를 찾으면 끝, 은하수 그림은 세 곳(DM·냥스타·게시판)을 모두 연다.
+ // 후속 조사 표시: 구청 캠프는 새 공개 페이지에서 달라진 두 줄(담당 부서·이의 신청)을 모두 찾는다(2026-11-12 후속 요청 4 — 그전에는 하나만, 칸 이름 changed), 은하수 그림은 세 곳(DM·냥스타·게시판)을 모두 연다.
  const followMarks={photo:{ids:['p1','p2','p3','p4','p5','p6'],values:['shown','cut']},writing:{ids:['run'],values:['done']},face:{ids:['r1','r2','r3','r4'],values:['open']},
-  camp:{ids:['changed'],values:['found']},share:{ids:['dm','post','board'],values:['open']}};
+  camp:{ids:['office','appeal'],values:['found']},share:{ids:['dm','post','board'],values:['open']}};
  // 사건 4 구청에 묻기. 옛 저장(version 1~5)의 질문(옛 사건 5 앱에 묻기)은 OLD_QUESTIONS로 검사만 하고 버린다.
  const questions=['purpose','criteria','who','appeal'],OLD_QUESTIONS=['input','criteria','unknown','notice'];
  // 미리 알리기 카드 종류: must(꼭 필요) · nice(있으면 좋음) · conflict(넣으면 다른 원칙과 부딪침) · promise(지킬 수 없는 약속). 문장과 화면 순서는 story.js.
@@ -44,6 +44,32 @@
   camp:{must:['camp-role','camp-office','camp-appeal'],nice:['camp-items'],conflict:['camp-everyone'],promise:['camp-never']},
   share:{must:['share-ai','share-real'],nice:['share-photo','share-spell'],conflict:['share-settings'],promise:['share-same']}};
  const KINDS=['must','nice','conflict','promise'];
+ // 미리 알리기 '고치기'(2026-11-12 수정 요청 10 → 후속 요청 6, 사건 4·5만): 카드 고르기 대신 짧은 틀린 안내문(초안)을 칸마다 고친다.
+ // 칸마다 문장 선택지(자유 서술·자동 채점 없음). draft = 초안에 든 카드(null이면 빈 칸), ok = 맞는 선택지. 칸·선택지 순서 = 화면 순서.
+ // 선택지 id: 'keep'(초안 문장 그대로) · 'drop'(이 문장 빼기) · 'blank'(비워 두기·덧붙이지 않기) · 카드 id(noticeCards) · 고치기에만 있는 문장(camp-auto, share-tag — 글은 story.js).
+ // 저장: notices[k]={mode:'fix',choice:{칸:선택지},posted:{칸:선택지}|null}. 모든 칸을 골라야 붙일 수 있고, 한 번 붙이면(틀려도) 다음으로 간다.
+ // mode가 없으면 예전 카드 고르기({picked,posted}) — 이 기능 전(version 6·7)에 카드로 붙였거나 고르던 사건 4·5 안내문은 그대로 둔다(‘이전 방식으로 작성한 안내문’).
+ const noticeSlots={
+  camp:[{id:'role',draft:null,options:['blank','camp-auto','camp-role'],ok:['camp-role']},
+   {id:'office',draft:null,options:['blank','camp-office'],ok:['camp-office']},
+   {id:'appeal',draft:null,options:['blank','camp-appeal','camp-everyone'],ok:['camp-appeal']},
+   {id:'claim',draft:'camp-never',options:['keep','drop','camp-items'],ok:['drop','camp-items']}],
+  share:[{id:'ai',draft:null,options:['blank','share-spell','share-tag','share-ai'],ok:['share-tag','share-ai']},
+   {id:'sky',draft:'share-same',options:['keep','share-real','drop'],ok:['share-real']},
+   {id:'more',draft:null,options:['blank','share-settings','share-photo'],ok:['blank','share-photo']}]};
+ function noticeFix(s,key){return s.notices[key].mode==='fix';}
+ const slotOf=(key,id)=>(noticeSlots[key]||[]).find(x=>x.id===id);
+ function validChoice(key,c,full){if(!c||typeof c!=='object'||Array.isArray(c))return false;const e=Object.entries(c);
+  return e.every(([id,o])=>slotOf(key,id)&&slotOf(key,id).options.includes(o))&&(!full||noticeSlots[key].every(x=>x.id in c));}
+ // 모든 칸을 골랐는가(붙이기 조건)
+ function noticeFixReady(key,c){return noticeSlots[key].every(x=>x.id in c);}
+ // 판정: 다 맞음 = 모든 칸이 맞는 선택지. again = 다시 볼 칸(화면 순서)
+ function noticeFixCheck(key,c){const again=noticeSlots[key].filter(x=>!x.ok.includes(c[x.id])).map(x=>x.id);return {ok:!again.length,again};}
+ // 고친 안내문에 남는 문장(칸 순서): keep = 초안 문장, drop·blank = 없음, 그 밖 = 고른 문장
+ function noticeFixLines(key,c){return noticeSlots[key].map(x=>{const o=c[x.id];return o==='keep'?x.draft:o==='drop'||o==='blank'||!o?null:o;}).filter(Boolean);}
+ // 고치기 사건의 미리 알리기에 처음 섰을 때(카드로 고르거나 붙인 것이 없으면) 초안을 연다. 카드로 고르던·붙인 안내문은 건드리지 않는다.
+ function seedFix(s,key){const n=s.notices[key];
+  if(noticeSlots[key]&&n.mode!=='fix'&&!n.picked.length&&n.posted===null&&s.furthest>=sceneOf(key,'notice'))s.notices[key]={mode:'fix',choice:{},posted:null};}
  function noticeIds(key){return KINDS.flatMap(t=>noticeCards[key][t]);}
  function noticeKind(key,id){return KINDS.find(t=>noticeCards[key][t].includes(id))||null;}
  // 다 맞음 = 꼭 필요 카드를 모두 넣고 상충·약속 카드는 하나도 없음. 있으면 좋음(extras)은 판정에 넣지 않는다.
@@ -80,7 +106,7 @@
  const clone=v=>JSON.parse(JSON.stringify(v));
  const each=f=>Object.fromEntries(CASES.map(k=>[k,f(k)])),eachOld=f=>Object.fromEntries(OLD3.map(k=>[k,f(k)]));
  // asked = 사건 4 궁금한 것에서 물어본 질문(누른 순서). completed = 마지막 장면에 들어갔음.
- function initial(){return {version:7,scene:0,furthest:0,evidence:[],judgments:each(()=>[null,null,null]),cases:each(()=>({first:null,final:null})),follows:each(()=>({marks:{},judgment:null})),asked:[],completed:false,
+ function initial(){return {version:8,scene:0,furthest:0,evidence:[],judgments:each(()=>[null,null,null]),cases:each(()=>({first:null,final:null})),follows:each(()=>({marks:{},judgment:null})),asked:[],completed:false,
   reflections:each(()=>({q1:'',q2:''})),finalNote:'',reporter:{name:'',number:''},notices:each(()=>({picked:[],posted:null}))};}
  // 처음부터 다시 하기: 진행은 모두 지운다. 이름·학번은 기본으로 함께 지우고(공용 PC), keepReporter일 때만 남긴다.
  function restart(s,{keepReporter=false}={}){const n=initial();if(keepReporter&&s&&s.reporter)for(const f of REPORTER)n.reporter[f]=typeof s.reporter[f]==='string'?s.reporter[f]:'';return n;}
@@ -122,12 +148,14 @@
   }
   if(action.type==='mark'&&step==='follow'){const m=followMarks[k],f=s.follows[k];if(m.ids.includes(action.id)&&m.values.includes(action.value)&&(f.judgment===null||f.judgment==='legacy'))f.marks[action.id]=action.value;}
   if(action.type==='follow-judge'&&step==='follow'&&followReady(s,k)&&stamps.includes(action.stamp)){const f=s.follows[k];if(f.judgment===null||f.judgment==='legacy')f.judgment=action.stamp;}
-  if(action.type==='notice-pick'&&step==='notice'&&noticeKind(k,action.id)){const n=s.notices[k],i=n.picked.indexOf(action.id);if(i>=0)n.picked.splice(i,1);else n.picked.push(action.id);}
-  if(action.type==='notice-post'&&step==='notice'&&s.notices[k].picked.length)s.notices[k].posted=s.notices[k].picked.slice();
+  if(action.type==='notice-slot'&&step==='notice'&&noticeFix(s,k)&&slotOf(k,action.slot)&&slotOf(k,action.slot).options.includes(action.opt))s.notices[k].choice[action.slot]=action.opt;
+  if(action.type==='notice-pick'&&step==='notice'&&!noticeFix(s,k)&&noticeKind(k,action.id)){const n=s.notices[k],i=n.picked.indexOf(action.id);if(i>=0)n.picked.splice(i,1);else n.picked.push(action.id);}
+  // 고치기: 모든 칸을 골라야 붙인다(틀린 채 붙이고 넘어가는 것은 카드 고르기처럼 된다). 카드 고르기: 한 장 이상.
+  if(action.type==='notice-post'&&step==='notice'){const n=s.notices[k];if(noticeFix(s,k)){if(noticeFixReady(k,n.choice))n.posted={...n.choice};}else if(n.picked.length)n.posted=n.picked.slice();}
   if(action.type==='reflect'&&step==='reflect'&&action.key===k&&['q1','q2'].includes(action.q)&&typeof action.text==='string')s.reflections[k][action.q]=text(action.text);
   if(action.type==='note'&&step==='end'&&s.completed&&typeof action.text==='string')s.finalNote=text(action.text);
   if(action.type==='reporter'&&step==='report'&&REPORTER.includes(action.field)&&typeof action.text==='string')s.reporter[action.field]=action.text.replace(/[\u0000-\u001f\u007f]/g,'').slice(0,40);
-  if(action.type==='next'&&s.scene<REPORT&&canAdvance(s)){s.scene++;s.furthest=Math.max(s.furthest,s.scene);if(s.scene===END)s.completed=true;}
+  if(action.type==='next'&&s.scene<REPORT&&canAdvance(s)){s.scene++;s.furthest=Math.max(s.furthest,s.scene);if(s.scene===END)s.completed=true;if(stepOf(s.scene)==='notice')seedFix(s,caseKey(s.scene));}
   if(action.type==='revisit'&&Number.isInteger(action.scene)&&action.scene>=0&&action.scene<=s.furthest)s.scene=action.scene;
   if(action.type==='ask'&&step==='hook'&&k==='camp'&&questions.includes(action.id)&&!s.asked.includes(action.id))s.asked.push(action.id);
   return s;
@@ -144,7 +172,7 @@
    if(v.furthest>=sceneOf(key,'result')&&!c.final)return false;
    if(v.furthest>sceneOf(key,'follow')&&!followDone(v,key))return false;
    const n=v.notices[key];if(v.furthest>sceneOf(key,'notice')&&!noticeDone(v,key))return false;
-   if(v.furthest<sceneOf(key,'notice')&&(n.picked.length||n.posted!==null))return false;
+   if(v.furthest<sceneOf(key,'notice')&&(n.mode==='fix'||n.picked.length||n.posted!==null))return false;
   }
   if(v.furthest>sceneOf('camp','hook')&&!v.asked.length)return false;
   if(v.completed!==(v.furthest>=END))return false;
@@ -226,12 +254,25 @@
   const f=w.follows&&w.follows.share;if(f&&typeof f==='object'&&stamps.includes(f.judgment))f.judgment='legacy';
   return w;
  }
+ // version 7(2026-11-12 오전~저녁) → 8. 장면 번호·칸은 그대로이고 바뀐 두 곳만 손본다.
+ //  · 사건 4 판단 3이 또 다른 문장(버스 → 참여 횟수와 그 항목 점수, 근거는 마을별 결과의 새 칸)이 됐다. 옛 답은 'legacy'(이어하기는 막지 않고, 수첩에서 다시 해 볼 수 있다).
+ //  · 사건 4 후속 조사는 달라진 줄 하나(marks.changed) → 두 줄(marks.office·appeal). 판단까지 끝난(또는 legacy) 저장은 두 줄 모두 찾은 것으로 두어 진행을 되돌리지 않는다.
+ //    줄만 찾고 판단은 안 한 저장은 어느 줄을 찾았는지 알 수 없어 표시를 비운다(두 줄을 다시 찾으면 판단이 나온다).
+ //  · 사건 4·5 미리 알리기: 카드로 붙였거나 고르던 안내문은 그대로(‘이전 방식으로 작성한 안내문’). 칸 모양이 같아 손대지 않는다.
+ function from7(v){
+  const w=clone(v);w.version=8;
+  const j=w.judgments&&w.judgments.camp;if(Array.isArray(j)&&stamps.includes(j[2]))j[2]='legacy';
+  const f=w.follows&&w.follows.camp;
+  if(f&&f.marks&&typeof f.marks==='object'&&'changed' in f.marks){const had=f.marks.changed==='found';delete f.marks.changed;if(had&&f.judgment!==null&&f.judgment!==undefined){f.marks.office='found';f.marks.appeal='found';}}
+  return w;
+ }
  function restore(raw){
   try{let v=typeof raw==='string'?JSON.parse(raw):raw;
    if(!v||typeof v!=='object')return initial();
    if(v.version===6)v=from6(v);
+   if(v.version===7)v=from7(v);
    if(v.version===1){const r=v.revision===4?restore4(v):migrate3(v);return r?upgrade(r):initial();}
-   if(![2,3,4,5,7].includes(v.version))return initial();
+   if(![2,3,4,5,8].includes(v.version))return initial();
    // version 2·3·4 → 5: 장면 번호를 새 배치로 옮긴다(옛 마지막·보고서는 사건 4 첫 화면, 완료 아님). version 2는 서술을, 2·3은 안내문을 빈 값(지난 사건은 legacy)으로 둔다.
    // version 5(옛 사건 4·5 = 도서관·밤하늘) → 6: 사건 1~3은 그대로, 장면 22 이상(옛 사건 4·5·마지막·보고서)은 새 사건 4 첫 화면(완료 아님). 옛 사건 4·5 칸·자료는 버린다.
    // 옛 저장의 질문(question·asked)은 지금 사건에 없는 질문이라 검사만 하고 버린다. 새 사건 4·5 칸은 빈 값.
@@ -258,14 +299,19 @@
     s.cases[key]={first:c.first,final:c.final};if(c.legacyFirst===true)s.cases[key].legacyFirst=true;
     s.judgments[key]=j.slice();s.follows[key]={marks:{...f.marks},judgment:f.judgment};
     if(v.version>=4){const n=v.notices?.[key],ok=a=>Array.isArray(a)&&a.every(id=>noticeKind(key,id))&&new Set(a).size===a.length;
+     // 고치기 모양(사건 4·5, 2026-11-12): 칸·선택지가 맞고, 붙인 것은 모든 칸을 고른 것이어야 한다. 미리 알리기 장면에 가기 전에는 없다(consistent).
+     if(n&&n.mode==='fix'){if(!noticeSlots[key]||!validChoice(key,n.choice,false)||!(n.posted===null||validChoice(key,n.posted,true)))return initial();
+      s.notices[key]={mode:'fix',choice:{...n.choice},posted:n.posted?{...n.posted}:null};continue;}
      if(!n||!ok(n.picked)||!(n.posted===null||n.posted==='legacy'||ok(n.posted)&&n.posted.length))return initial();
      s.notices[key]={picked:n.picked.slice(),posted:Array.isArray(n.posted)?n.posted.slice():n.posted};}
    }
+   // 미리 알리기 장면까지 갔지만 아직 아무것도 안 고른 사건 4·5(version 6·7 저장, 이 기능 전)는 지금 초안을 넣는다. 고르던·붙인 안내문은 그대로.
+   for(const key of KEYS)seedFix(s,key);
    if(OLD)legacyNotices(s);
    return consistent(s)?s:initial();
   }catch{return initial();}
  }
- const api={initial,restart,reduce,canAdvance,restore,caseKey,stepOf,sceneOf,checked,judged,currentJudgment,followReady,followDone,noticeIds,noticeKind,noticeCheck,noticeDone,outcome,allFaces,cutFaces,faceIn,place,PHOTO,clipText,TEXT_MAX,
-  CASES,STEPS,LAYOUT,OLD_QUESTIONS,LAYOUT2,LAYOUT3,LAYOUT4,END,REPORT,RESUME,checks,choices,stamps,answers,followAnswers,followMarks,questions,noticeCards,AUTO,ALL,faces,FOLLOW_CROPS,truth};
+ const api={initial,restart,reduce,canAdvance,restore,caseKey,stepOf,sceneOf,checked,judged,currentJudgment,followReady,followDone,noticeIds,noticeKind,noticeCheck,noticeDone,noticeFix,noticeFixReady,noticeFixCheck,noticeFixLines,outcome,allFaces,cutFaces,faceIn,place,PHOTO,clipText,TEXT_MAX,
+  CASES,STEPS,LAYOUT,OLD_QUESTIONS,LAYOUT2,LAYOUT3,LAYOUT4,END,REPORT,RESUME,checks,choices,stamps,answers,followAnswers,followMarks,questions,noticeCards,noticeSlots,AUTO,ALL,faces,FOLLOW_CROPS,truth};
  if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.TransparencyEngine=api;
 })(typeof window==='undefined'?globalThis:window);

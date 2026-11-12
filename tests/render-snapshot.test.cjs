@@ -7,7 +7,7 @@ const {createGame}=require('./dom-stub.cjs');
 const HASHES=path.join(__dirname,'render-snapshot.hashes.json'),FULL=path.join(__dirname,'render-snapshot.full.json.br');
 const UPDATE=process.env.UPDATE_SNAPSHOT==='1';
 // 화면 코드가 처리하는 data-act 전부(2026-11-10 나누기 전 app.js 기준 37개 + 2026-11-11 시작 화면의 start·title). 대본이 하나도 빠짐없이 눌러 봐야 한다.
-const ALL_ACTS=['close','next','back','source','item','spot','region','record','segment','cell','village','crit','part','skyline','said','change','list','judge','judge-next','notice-pick','notice-post',
+const ALL_ACTS=['close','next','back','source','item','spot','region','record','segment','cell','village','crit','part','skyline','said','change','list','judge','judge-next','notice-pick','notice-slot','notice-post',
  'mark','run','row','follow-judge','choose','rechoose','ask','notebook','print','to-report','revisit','sources','discussion','settings','reset-ask','reset','start','title'];
 const FIELDS=['cls','html','modalOpen','modalTitle','modalBody','save','stored','title','state','art','fx'];
 const sha=s=>crypto.createHash('sha256').update(s).digest('hex').slice(0,16);
@@ -58,13 +58,21 @@ function play(opts,script){
     act('mark',{id,value:m.followRight||i%2?(m.followRight?t:other):t});});}
   else if(k==='writing')act('run');
   else if(k==='face')for(const id of m.reverse?ids.slice().reverse():ids)act('row',{id});
-  else if(k==='camp'){if(m.wrongTaps)for(const s of f.segments.filter(x=>!x.changed))act('change',{id:s.id},'wrong-change:'+s.id);act('change',{id:pickOne(f.segments.filter(x=>x.changed).map(x=>x.id),m.v)[0]});}
+  else if(k==='camp'){if(m.wrongTaps)for(const s of f.segments.filter(x=>!x.changed))act('change',{id:s.id},'wrong-change:'+s.id);const ch=f.segments.filter(x=>x.changed).map(x=>x.id);for(const id of m.v?ch.slice().reverse():ch)act('change',{id});}
   else for(const id of m.reverse?ids.slice().reverse():ids)act('list',{id});
   if(m.peek)peek();
   const ans=E.followAnswers[k];act('follow-judge',{id:m.followRight?ans:E.stamps[(E.stamps.indexOf(ans)+1+(m.v||0))%3]});
   if(m.wrongTaps){if(k==='photo')act('mark',{id:'p1',value:'cut'},'mark-locked');if(k==='writing')act('run',undefined,'run-disabled');if(k==='face')act('row',{id:'r1'},'row-after');if(k==='share')act('list',{id:'dm'},'list-after');}
  }
- function notice(m){const {k}=at(),n=E.noticeCards[k],pick=id=>act('notice-pick',{id}),post=()=>act('notice-post');
+ function notice(m){const {s,k}=at(),n=E.noticeCards[k],pick=id=>act('notice-pick',{id}),post=()=>act('notice-post');
+  // 사건 4·5 고치기(2026-11-12 요청 10·후속 6): 칸마다 선택지. 모든 칸을 골라야 붙인다. right = 맞는 첫 선택지, alt = 맞는 마지막 선택지, wrong = 틀린 첫 선택지.
+  if(E.noticeFix(s,k)){const slots=E.noticeSlots[k],choose=(x,o)=>act('notice-slot',{id:x.id,value:o}),right=x=>x.ok[0],alt=x=>x.ok[x.ok.length-1],wrong=x=>x.options.find(o=>!x.ok.includes(o));
+   if(m.notice==='ok'){act('notice-post',undefined,'post-not-ready');slots.forEach(x=>choose(x,right(x)));post();}
+   if(m.notice==='nice'){slots.forEach(x=>choose(x,alt(x)));post();}
+   if(m.notice==='stay'){slots.forEach((x,i)=>choose(x,i?right(x):wrong(x)));post();}
+   if(m.notice==='fix'){choose(slots[0],wrong(slots[0]));act('notice-post',undefined,'post-not-ready');slots.forEach(x=>choose(x,wrong(x)));post();choose(slots[1],right(slots[1]));post();
+    slots.forEach(x=>choose(x,right(x)));post();slots.forEach(x=>x.options.filter(o=>o!==right(x)).forEach(o=>choose(x,o)));post();}
+   return;}
   if(m.notice==='ok'){n.must.forEach(pick);post();}
   if(m.notice==='nice'){[...n.nice,...n.must].forEach(pick);post();}
   if(m.notice==='stay'){[n.must[0],n.conflict[0]].forEach(pick);post();}
