@@ -90,7 +90,7 @@ async function sizes(){
    if(process.env.SHOTS_ONLY==='1'){console.log(at,JSON.stringify({...m,panelText:undefined,alt:undefined}));return;}
    assert.equal(m.scrollY,0,at);
    assert.ok(m.overflow<=0,at+': 가로 넘침 '+m.overflow+'px');
-   assert.deepEqual([m.h1.tag,m.h1.count,m.h1.text],['H1',1,D.report.game],at+': 제목은 h1 하나');
+   assert.deepEqual([m.h1.tag,m.h1.count,m.h1.text.replace(/\s+/g,'')],['H1',1,D.report.game.replace(/\s+/g,'')],at+': 제목은 h1 하나');/* 2026-11-12 제목 글자 그림: 두 줄로 나뉘어 innerText에 줄바꿈이 낀다 — 글자만 견준다 */
    assert.equal(m.h1.inView,true,at+': 제목이 첫 화면 안');
    assert.equal(m.main.tag,'BUTTON',at);assert.equal(m.main.inView,true,at+': 으뜸 버튼이 스크롤 없이 첫 화면 안');
    assert.ok(m.main.height>=44,at+': 누르는 곳 '+m.main.height);assert.ok(m.main.font>=16,at+': 버튼 글자 '+m.main.font);
@@ -103,7 +103,7 @@ async function sizes(){
    assert.equal(m.header,'none',at+': 시작 화면에서는 게임 메뉴(수첩·설정)를 숨긴다');
    assert.deepEqual([m.scenes,m.role,m.alt],[1,'img',T.art],at+': 그림 묶음은 하나만 보이고 대체 글이 있다');
    assert.equal(m.sceneCls,'title-scene '+(w/h>=1.5&&w>=560?'fit-wide':'fit-tall'),at+': 배치에 맞는 맞춤');
-   assert.deepEqual([...new Set(m.images)].sort(),[D.art.backgrounds[0],D.art.moa,D.art.props].sort(),at+': 기존 그림 세 장만 쓴다');assert.equal(m.htmlImages,0);
+   assert.deepEqual([...new Set(m.images)].sort(),[D.art.backgrounds[0],D.art.moa,D.art.props].sort(),at+': 기존 그림 세 장만 쓴다');assert.equal(m.htmlImages,1,at+': img는 제목 글자 그림 하나뿐(2026-11-12)');
    assert.equal(m.faceClear,true,at+': 모아 얼굴이 그림 칸 안에 보이고 판에 가리지 않음');
    assert.equal(m.boxClear,true,at+': 검은 상자가 그림 칸 안에 보이고 판에 가리지 않음');
    assert.equal(m.shown.lead,true,at+': 무슨 게임인지 한 줄은 늘 보인다');
@@ -118,7 +118,7 @@ async function flow(){
  await withPage({width:1280,height:800},null,async p=>{
   await settle(p);
   const fresh=JSON.parse(await stored(p));
-  assert.deepEqual(Object.keys(fresh).sort(),Object.keys(E.initial()).sort(),'저장 형식은 그대로(시작 화면을 봤는지는 저장하지 않는다)');assert.equal(fresh.version,6);
+  assert.deepEqual(Object.keys(fresh).sort(),Object.keys(E.initial()).sort(),'저장 형식은 그대로(시작 화면을 봤는지는 저장하지 않는다)');assert.equal(fresh.version,7);
   // Tab으로 버튼까지 가서 Enter
   let tabs=0,a;do{await p.keyboard.press('Tab');tabs++;a=await active(p);}while(!(a&&a.act==='start')&&tabs<6);
   assert.equal(a.act,'start','Tab으로 시작 버튼에 닿는다');assert.ok(tabs<=2,'Tab '+tabs+'번');
