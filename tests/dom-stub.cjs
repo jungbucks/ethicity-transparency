@@ -32,7 +32,8 @@ function createGame(opts={}){
  const env={blocked:!!opts.blocked,failSet:false,visualTop:opts.visualTop||0,resetChecked:true};
  const listeners={document:{},window:{},modal:{}},pending=[];
  const on=where=>(type,fn)=>{(listeners[where][type]||(listeners[where][type]=[])).push(fn);};
- const headerHtml=fs.readFileSync(path.join(ROOT,'index.html'),'utf8').replace(/<main[\s\S]*?<\/main>/,'').replace(/<script[\s\S]*$/,'');
+ // 첫 <script src>부터 끝까지 뺀다 — 2026-11-14 머리에 글꼴 미리 받기 인라인 <script>가 생겨, 아무 <script에서나 자르면 머리말·창까지 잘린다
+ const headerHtml=fs.readFileSync(path.join(ROOT,'index.html'),'utf8').replace(/<main[\s\S]*?<\/main>/,'').replace(/<script\s+src[\s\S]*$/,'');
 
  let active=null;
  // 화면 조각 하나(초점을 받을 수 있는 것). live()가 false면 다시 그려져 사라진 요소.
@@ -129,6 +130,14 @@ function createGame(opts={}){
    fire('document','click',e);settle();
   },
   clickNothing(){fire('document','click',{target:{closest:()=>null}});},
+  // 지금 초점이 있는 요소에서 키 하나(keydown). target.closest는 ‘button[data-act="…"]’만 푼다. 돌려주는 값: 이벤트(defaultPrevented)
+  key(k,mods={}){
+   const b=active,e={key:k,altKey:false,ctrlKey:false,metaKey:false,shiftKey:false,...mods,defaultPrevented:false,preventDefault(){e.defaultPrevented=true;},
+    target:{closest:sel=>{const m=/^button\[data-act="([^"]*)"\]$/.exec(sel);if(!m)throw new Error('흉내 못 내는 선택자(closest): '+sel);return b&&b.tagName==='BUTTON'&&b.isConnected&&b.dataset.act===m[1]?b:null;}}};
+   fire('document','keydown',e);settle();return e;
+  },
+  // 지금 초점이 있는 요소를 바꾼다(Tab으로 거기까지 간 것처럼). 화면에 없는 버튼이면 멈춘다.
+  focusButton(act,data){const b=findButton(act,data);if(!b)throw new Error(`화면에 없는 버튼: ${act} ${JSON.stringify(data||{})}`);active=b;},
   // 창 바깥(어두운 곳) 누르기 / 창 안 빈 곳 누르기
   clickBackdrop(inside){const e={target:modal,clientX:inside?300:10,clientY:inside?200:10};e.target.closest=()=>null;fire('modal','click',e);fire('document','click',e);delete modal.closest;settle();},
   // 글 칸에 입력. kind: reflect(q1·q2) · note · reporter(name·number) · other(관계없는 칸) · none(입력칸 아님) · fake(입력칸이 아닌데 data-reflect만 있음)

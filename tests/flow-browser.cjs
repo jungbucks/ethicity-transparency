@@ -22,6 +22,18 @@ function noticeShown(text,k,s,where){const n=s.notices[k],posted=n.posted;assert
  // 사건 4·5를 이 기능 전에 카드로 붙인 저장은 ‘이전 방식으로 작성한 안내문’, 사건 1~3에는 없다
  assert.equal(part.includes(D.notice.fix.old),!!E.noticeSlots[k],where+' old label '+k);}
 const DESKTOP={width:1366,height:768},WIDE={width:1280,height:800},PHONE={width:390,height:844};
+// Pretendard를 뺀 글꼴(style.css :root 글꼴 목록에서 Pretendard만 뺀 것 = 맑은 고딕). 2026-11-14 웹 글꼴을 싣기 전엔 Pretendard가 깔리지 않은 PC의 글꼴이었고,
+// 웹 글꼴을 실은 뒤로는(pretendard.css) 웹 글꼴을 못 읽었을 때를 흉내 낸다
+const NOPRET_FONT=":root{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Malgun Gothic',sans-serif !important}";
+// 2026-11-14: 화면 글자가 게임이 실은 웹 글꼴 Pretendard로 그려졌나(PC에 깔린 Pretendard·맑은 고딕이 아니라) — 그려진 글자의 실제 글꼴을 브라우저(CDP getPlatformFontsForNode)에 묻는다.
+// document.fonts.check('16px Pretendard')는 쓰지 않는다 — 웹 글꼴이 없어도 true(정의된 face가 없으면 '쓸 수 있음'으로 셈)
+async function webFont(p,sels){await p.evaluate(()=>document.fonts.ready);const cdp=await p.context().newCDPSession(p);
+ try{await cdp.send('DOM.enable');await cdp.send('CSS.enable');const {root}=await cdp.send('DOM.getDocument',{depth:0}),out=[];
+  for(const sel of sels){const {nodeId}=await cdp.send('DOM.querySelector',{nodeId:root.nodeId,selector:sel});const {fonts}=nodeId?await cdp.send('CSS.getPlatformFontsForNode',{nodeId}):{fonts:[]};
+   const main=fonts.slice().sort((a,b)=>b.glyphCount-a.glyphCount)[0],weight=await p.evaluate(s=>{const e=document.querySelector(s);return e?getComputedStyle(e).fontWeight:null;},sel);
+   out.push({sel,weight,font:main?(main.postScriptName||main.familyName)+(main.isCustomFont?' (웹 글꼴)':' (PC 글꼴)'):null,web:!!main&&/^Pretendard( |$)/.test(main.familyName)&&main.isCustomFont});}
+  const faces=await p.evaluate(()=>[...document.fonts].filter(f=>f.family.replace(/["']/g,'')==='Pretendard'&&f.status==='loaded').map(f=>f.weight));
+  return {ok:out.every(x=>x.web)&&faces.includes('400'),faces,out};}finally{await cdp.detach();}}
 // 모든 사건을 정답으로 마치고 보고서까지 간 저장(서술은 비어 있음)
 function finishedState(){let s=E.initial();
  for(let n=0;n<E.REPORT;n++){const k=E.caseKey(n),st=E.stepOf(n);
@@ -69,14 +81,19 @@ async function discover(p,k,id,wrongFirst){
   await click(p,'[data-act="segment"][data-id="rule"]');assert.match(await p.locator('.tap-hint').innerText(),/가게 규칙이야. 알림의 말을 바꿔 말한 문장은 따로 있어/);assert.ok(!(await state(p)).evidence.includes('face-clerk'),'shop-rule sentence does not confirm');
   await click(p,'[data-act="segment"][data-id="person"]');assert.match(await p.locator('.tap-hint').innerText(),/‘그 손님’이라고 정한 건 점원이야/);assert.equal(await p.locator('.visual .segments mark').count(),1);}
  // 사건 4: 공개 페이지 빈 칸, 마을별 결과(솔숲마을), 기준표 네 줄을 모두 열면 마무리 줄
- if(id==='camp-page'){assert.equal(await p.locator('[data-act="cell"]').count(),4);
+ if(id==='camp-page'){assert.equal(await p.locator('[data-act="cell"]').count(),5);
   if(wrongFirst){await click(p,'[data-act="cell"][data-id="use"]');assert.match(await p.locator('.tap-hint').innerText(),/적혀 있어/);}
   // 빈 칸은 누른 칸만 표시, 둘 다 눌러야 확인(2026-11-12). 칸 버튼은 한 줄(높이 60px 아래)이고 .blank class가 없다.
   await click(p,'[data-act="cell"][data-id="office"]');assert.equal(await p.locator('.visual mark').count(),1,'only the pressed cell is marked');assert.ok(!(await state(p)).evidence.includes('camp-page'),'one cell is not enough');
   assert.match(await p.locator('.tap-hint').innerText(),/하나 더 있어/);
   await click(p,'[data-act="cell"][data-id="appeal"]');assert.equal(await p.locator('.visual mark').count(),2,'both blank cells marked');
-  {const cells=await p.locator('[data-act="cell"]').evaluateAll(a=>a.map(b=>({h:b.getBoundingClientRect().height,w:b.getBoundingClientRect().width,pw:b.parentElement.getBoundingClientRect().width,blank:b.classList.contains('blank'),vh:b.querySelector('.kv-v').getBoundingClientRect().height})));
-   for(const c of cells){assert.equal(c.blank,false);assert.ok(Math.abs(c.w-c.pw)<2,'cell is full width '+JSON.stringify(c));assert.ok(c.h<60&&c.vh<40,'cell value on one line '+JSON.stringify(c));}}}
+  // 2026-11-14: 글꼴만 Pretendard가 없는 PC(학교 Windows = 맑은 고딕)로 바꿔 한 번 더 — 그때 390px에서 ‘확인함’이 둘째 줄로 떨어졌다(값 칸 184px < 글 190px). 칸 이름 한 줄·글이 버튼 안(넘침 없음, 표시 글자 온전)도 본다
+  for(const font of ['page','nopret']){
+   if(font==='nopret')await p.evaluate(css=>{const st=document.createElement('style');st.id='flow-nopret';st.textContent=css;document.head.appendChild(st);},NOPRET_FONT);
+   const cells=await p.locator('[data-act="cell"]').evaluateAll(a=>a.map(b=>{const r=b.getBoundingClientRect(),t=b.querySelector('.cell-tag'),tr=t&&t.getBoundingClientRect();
+    return {id:b.dataset.id,h:r.height,w:r.width,pw:b.parentElement.getBoundingClientRect().width,blank:b.classList.contains('blank'),vh:b.querySelector('.kv-v').getBoundingClientRect().height,kh:b.querySelector('.kv-k').getBoundingClientRect().height,over:b.scrollWidth>b.clientWidth+1,tagIn:!tr||(tr.left>=r.left&&tr.right<=r.right&&tr.top>=r.top&&tr.bottom<=r.bottom)};}));
+   for(const c of cells){const tag=font+' '+JSON.stringify(c);assert.equal(c.blank,false);assert.ok(Math.abs(c.w-c.pw)<2,'cell is full width '+tag);assert.ok(c.h<60&&c.vh<40,'cell value on one line '+tag);assert.ok(c.kh<40,'cell name on one line '+tag);assert.ok(!c.over&&c.tagIn,'cell text inside the button '+tag);}
+   if(font==='nopret')await p.evaluate(()=>document.getElementById('flow-nopret').remove());}}
  if(id==='camp-results'){assert.equal(await p.locator('[data-act="village"]').count(),4);
   if(wrongFirst){await click(p,'[data-act="village"][data-id="city"]');assert.match(await p.locator('.tap-hint').innerText(),/절반 넘게/);}
   await click(p,'[data-act="village"][data-id="pine"]');assert.equal(await p.locator('.visual mark').innerText(),'솔숲마을');}
@@ -284,9 +301,12 @@ async function playCase(p,k,{tag,viewport,pick,judge,wrongFirst,shots,write={},n
   await click(p,'.step-nav [data-act="next"]');
   return judgments;}
 // 휴대폰 미리 알리기: 글자 16px 이상, 누르는 곳 44px 이상(붙이기 전)
-async function noticeReadable(p,k){const r=await p.evaluate(()=>{const vis=e=>e.offsetParent&&e.textContent.trim();
-  return {font:Math.min(...[...document.querySelectorAll('.body p,.body button,.body button span')].filter(vis).map(e=>parseFloat(getComputedStyle(e).fontSize))),tap:Math.min(...[...document.querySelectorAll('.body button')].filter(vis).map(b=>b.getBoundingClientRect().height))};});
- assert.ok(r.font>=16,'notice text 16px+ '+k+' '+r.font);assert.ok(r.tap>=44,'notice tap 44px+ '+k+' '+r.tap);}
+// 휴대폰 미리 알리기 붙이기 전 첫 화면(measure가 맨 위로 올린 뒤): 질문 제목·카드 전부·‘안내문 붙이기’ 버튼의 자리(아래 한 화면 검사가 쓴다)
+const noticeScreen={};
+async function noticeReadable(p,k){const r=await p.evaluate(()=>{const vis=e=>e.offsetParent&&e.textContent.trim(),R=s=>{const e=document.querySelector(s);return e?e.getBoundingClientRect():null;},cards=[...document.querySelectorAll('[data-act="notice-pick"]')].map(e=>e.getBoundingClientRect()),h1=R('h1'),post=R('[data-act="notice-post"]');
+  return {font:Math.min(...[...document.querySelectorAll('.body p,.body button,.body button span')].filter(vis).map(e=>parseFloat(getComputedStyle(e).fontSize))),tap:Math.min(...[...document.querySelectorAll('.body button')].filter(vis).map(b=>b.getBoundingClientRect().height)),
+   vh:innerHeight,h1:h1&&[Math.round(h1.top),Math.round(h1.bottom)],cards:cards.length,cardsBottom:cards.length?Math.round(Math.max(...cards.map(c=>c.bottom))):null,post:post&&Math.round(post.bottom),over:document.documentElement.scrollWidth>innerWidth};});
+ assert.ok(r.font>=16,'notice text 16px+ '+k+' '+r.font);assert.ok(r.tap>=44,'notice tap 44px+ '+k+' '+r.tap);noticeScreen[k]=r;}
 async function withPage(viewport,fn,init){const ctx=await browser.newContext({viewport,reducedMotion:'reduce'});if(init)await ctx.addInitScript(init);const p=throughTitle(await ctx.newPage());p.setDefaultTimeout(30000);try{return await fn(p);}finally{await ctx.close();}}
 async function seedPage(p,obj){await p.goto(url);await p.evaluate(({KEY,obj})=>localStorage.setItem(KEY,JSON.stringify(obj)),{KEY,obj});await p.reload();}
 (async()=>{
@@ -294,6 +314,9 @@ async function seedPage(p,obj){await p.goto(url);await p.evaluate(({KEY,obj})=>l
  browser=await chromium.launch({channel:'msedge',headless:true});
  const right=(k,i)=>i==='follow'?E.followAnswers[k]:E.answers[k][i];
  try{
+  // 2026-11-14: 첫 화면 글자 = 게임이 실은 웹 글꼴 Pretendard(PC에 Pretendard가 없어도 — 'Pretendard 없음' 래퍼로 한 번 더 돌림)
+  await withPage(DESKTOP,async p=>{await p.goto(url,{waitUntil:'domcontentloaded'});await assets(p);const f=await webFont(p,['.body','header .brand']);
+   assert.ok(f.ok,'text drawn with the bundled Pretendard web font '+JSON.stringify(f));results.checks.push({webFont:f.out.map(x=>`${x.sel} ${x.weight} ${x.font}`).join(' · ')+' · loaded '+f.faces.join(',')});console.log('ok web font',JSON.stringify(f.out));});
   await withPage(DESKTOP,p=>play(p,{tag:'desktop',viewport:DESKTOP,pick:{photo:'all',writing:'review',face:'release',camp:'accurate',share:'explain'},judge:right,wrongFirst:false,
    shots:['photo-check','photo-follow','writing-check-records','writing-follow','face-follow','camp-hook','camp-check-records','camp-check','camp-result','camp-follow','camp-notice','share-hook','share-check-records','share-check','share-result','share-follow','share-notice','end','notebook'],
    write:{photo:{q1:'나는 AI의 자르기 기준 자료를 보고, 이 AI가 눈길이 모일 곳을 중심으로 잘랐다고 판단했다.'},face:{q2:'아직 확인하지 못한 것은 점검이 끝났는지이고, 그것을 알려면 점검 기록이 필요하다.'},camp:{q1:'나는 선발 기준표를 보고, 구청이 가려진 항목의 영향을 더 설명해야 한다고 판단했다.'},share:{q2:'내가 AI로 만든 것을 나눈다면, 공개 게시물에는 AI로 만들었고 실제와 다르다고 알리겠다.'}},note:'어떤 정보를 썼는지 먼저 물어볼래.'}));
@@ -302,8 +325,11 @@ async function seedPage(p,obj){await p.goto(url);await p.evaluate(({KEY,obj})=>l
   // 휴대폰 390: 미리 알리기 화면(카드가 가장 많은 빵집, 이어하기 안내 없음)이 붙이기 전 한 화면 안팎
   {const hs=E.CASES.map(k=>[k,results.readability.find(x=>x.viewport==='390x844'&&x.screen===k+'-notice-start').pageHeight,results.readability.find(x=>x.viewport==='390x844'&&x.screen===k+'-notice-done').pageHeight]);
    // 카드 고르기(사건 1~3)는 한 화면 안팎. 사건 4·5 고치기(2026-11-12)는 칸 넷·셋이라 더 길다 — 잰 값만 남긴다(README).
-   for(const [k,h] of hs)if(!E.noticeSlots[k])assert.ok(h<=Math.round(844*1.05),'phone '+k+' notice before posting fits about one screen: '+h);
-   results.checks.push({phoneNotice:'before posting / after: '+hs.map(([k,h,d])=>k+' '+h+'/'+d+'px').join(', ')+' (viewport 844)'});}
+   // 2026-11-14: ‘한 화면 안팎’을 페이지 전체 높이(≤ 844×1.05, 맨 아래 꼬리말·아직 꺼진 이전/다음 줄까지 셈)로 재던 것을, 붙이기 전 첫 화면(스크롤 없이)에
+   // 질문 제목·카드 전부·‘안내문 붙이기’ 버튼이 다 보이는지로 바꿨다. Pretendard가 없는 PC(학교 Windows = 맑은 고딕)에서는 같은 화면이 도입 글 줄바꿈만으로
+   // 55px 길어져(빵집 875 → 930px) 1.05배를 넘었지만, 학생이 할 일(카드 고르기·붙이기)은 그대로 첫 화면 안이었다. 글자 16px·누르는 곳 44px 검사는 그대로(noticeReadable)
+   for(const [k] of hs)if(!E.noticeSlots[k]){const v=noticeScreen[k];assert.ok(v&&v.cards>0&&v.h1&&v.h1[0]>=0&&v.cardsBottom<=v.vh&&v.post!=null&&v.post<=v.vh&&!v.over,'phone '+k+' notice before posting: question, all cards and the post button on the first screen '+JSON.stringify(v));}
+   results.checks.push({phoneNotice:'before posting / after: '+hs.map(([k,h,d])=>k+' '+h+'/'+d+'px').join(', ')+' (viewport 844) · first screen (cards bottom / post button bottom): '+hs.filter(([k])=>!E.noticeSlots[k]).map(([k])=>k+' '+noticeScreen[k].cardsBottom+'/'+noticeScreen[k].post+'px').join(', ')});}
   // 저장·이어하기·다시 선택·처음부터
   await withPage(PHONE,async p=>{
    await p.goto(url,{waitUntil:'domcontentloaded'});await p.evaluate(()=>localStorage.setItem('ethicity.player',JSON.stringify({nickname:'테스트<b>'})));
@@ -324,7 +350,7 @@ async function seedPage(p,obj){await p.goto(url);await p.evaluate(({KEY,obj})=>l
    await click(p,'header [data-act="settings"]');await click(p,'#modal-body [data-act="reset-ask"]');await click(p,'[data-act="reset"]');
    const saved=JSON.parse(await p.evaluate(k=>localStorage.getItem(k),KEY));assert.equal((await state(p)).scene,0);assert.equal(saved.scene,0);assert.equal(saved.version,8);
    assert.equal(await p.evaluate(()=>localStorage.getItem('ethicity.player')),JSON.stringify({nickname:'테스트<b>'}),'shared player data untouched');
-   results.checks.push({saveResume:'mid-check and mid-judgment and mid-follow reload keep progress; rechoose keeps first; notebook lists judgments; reset clears only this game (version 7)'});
+   results.checks.push({saveResume:'mid-check and mid-judgment and mid-follow reload keep progress; rechoose keeps first; notebook lists judgments; reset clears only this game (version 8)'});
   });
   // 처음부터 다시 하기: '이름과 학번도 지우기'(기본 체크) — 체크면 함께 지우고, 풀면 이름·학번만 남긴다
   await withPage(PHONE,async p=>{const done=finishedState();done.reporter={name:'하늘',number:'10203'};
@@ -395,7 +421,7 @@ async function seedPage(p,obj){await p.goto(url);await p.evaluate(({KEY,obj})=>l
    s=await state(p);assert.equal(s.scene,E.END);assert.equal(s.completed,true);assert.deepEqual(s.asked,['appeal','who']);
    await click(p,'.step-nav [data-act="next"]');assert.equal((await state(p)).scene,E.REPORT);
    await reportCheck(p,{writing:{q1:'작성 기록',q2:'검사 이유'}},'먼저 물어볼래');
-   assert.match(await p.locator('#report-camp').innerText(),/구청 발표를 그대로 받아/);assert.match(await p.locator('#report-camp').innerText(),/3. “솔숲마을 신청자들은 지난 프로그램 참여 횟수가 적어, 이 항목에서 받은 점수도 낮았어.”/);assert.match(await p.locator('#report-share').innerText(),/“게시물과 게시판을 본 사람은 DM을 보지 못했어.”/);assert.match(await p.locator('#report-writing').innerText(),/검사 이유/);assert.equal(await p.locator('[data-reporter="name"]').inputValue(),'하늘');
+   assert.match(await p.locator('#report-camp').innerText(),/구청 발표를 그대로 받아/);assert.match(await p.locator('#report-camp').innerText(),/3. “솔숲마을 신청자들은 지난 프로그램 참여 횟수가 적어, 이 항목에서 받은 점수도 낮았어.”/);assert.match(await p.locator('#report-share').innerText(),/“세 곳 가운데, 보는 사람이 AI로 만든 걸 안다고 적힌 곳은 DM뿐이야.”/);assert.match(await p.locator('#report-writing').innerText(),/검사 이유/);assert.equal(await p.locator('[data-reporter="name"]').inputValue(),'하늘');
    assert.deepEqual(errors,[]);results.checks.push({['v'+ver+'Migration']:'version '+ver+' completed save → new case 4 hook (resume notice, old question dropped), cases 1~3 kept; play case 4 (quiet) and case 5 (tag) → ending → report with 5 cases'});});
   // 서술 자동 저장·이어하기, 보고서 → 서술 고치기 → 보고서, 인쇄 제목, PDF 쪽수, 캡처(1280×800·390×844)
   const done=finishedState();
