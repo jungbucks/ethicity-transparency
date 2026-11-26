@@ -65,6 +65,7 @@
   return '저장할 수 없어 이 창에서만 진행해요. 창을 닫으면 기록이 사라져요.';
  }
  function save(){
+  if(!preview && window.GameCertificate && !window.GameCertificate.current()){S.saveOK=false;return;}
   if(!preview){
    try{
     localStorage.setItem(KEY,JSON.stringify(S.state));
@@ -123,6 +124,7 @@
   S.title=false;
   S.skipFocusReturn=true;
   const gone=forget();
+  if(!preview && window.GameCertificate){if(gone)window.GameCertificate.begin();else window.GameCertificate.block();}
   UI.render(true);
   return gone;
  }

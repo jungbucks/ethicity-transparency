@@ -212,6 +212,7 @@
   const judging=step==='check'&&E.checked(S.state,k)&&judgeIndex(k)>=0;
   $('#app').className='step-'+step+(judging?' judging':'');
   $('#app').innerHTML=`<div class="screen${moved?' arrive':''}"><div class="head">${h}</div>${v?`<div class="visual">${v}</div>`:''}<div class="body" id="work" tabindex="-1">${b}</div></div>`;
+  if(!UI.preview && S.state.completed && (step==='end'||step==='report') && window.GameCertificate)window.GameCertificate.mount($('#work'));
   paint();
   if(moved){
    $('h1').focus({preventScroll:true});

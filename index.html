@@ -5,13 +5,15 @@
      http(s)일 때만: file://(더블클릭)에서는 미리 받기가 CORS 오류를 내고 쓰이지도 않는다(@font-face는 file://에서도 읽힌다) -->
 <script>if(location.protocol!=='file:'){const l=document.createElement('link');l.rel='preload';l.as='font';l.type='font/woff2';l.crossOrigin='';l.href='assets/fonts/Pretendard-Regular.subset.woff2';document.head.appendChild(l);}</script>
 <link rel="icon" href="data:,"><!-- 아이콘 파일이 없다 — 브라우저가 /favicon.ico를 찾다 404를 내지 않게 빈 아이콘(2026-11-14) -->
-<link rel="stylesheet" href="pretendard.css"><link rel="stylesheet" href="style.css"><link rel="stylesheet" href="title-type.css"></head>
+<link rel="stylesheet" href="pretendard.css"><link rel="stylesheet" href="style.css"><link rel="stylesheet" href="title-type.css"><link rel="stylesheet" href="css/completion-certificate.css">
+</head>
 <body>
 <a class="skip" href="#work">본문으로 건너뛰기</a>
 <header><a class="brand" href="index.html">블랙박스를 열어보는 고양이</a><nav aria-label="게임 메뉴"><button data-act="notebook">수첩</button><button data-act="settings">설정</button></nav></header>
 <main id="app"></main>
 <footer><span id="save-status"></span><span>창작 마을 · 창작 조사 자료</span></footer>
 <dialog id="modal" aria-labelledby="modal-title"><div class="modal-head"><h2 id="modal-title"></h2><button data-act="close" aria-label="창 닫기">닫기</button></div><div id="modal-body"></div></dialog>
+<script src="js/completion-certificate.js" data-game="transparency" data-prefix="TRN" data-title="블랙박스를 열어보는 고양이" data-paper="#fdfbf6" data-ink="#23201a" data-accent="#b45309" data-art="assets/s01/bg-festival-board.webp" data-art-focus="0.5" data-figure="assets/s01/moa-attentive.webp"></script>
 <script src="engine.js"></script><script src="story.js"></script>
 <!-- 화면 코드(ui/): 위에서 아래로 차례대로 읽는다. 순서를 바꾸지 않는다. -->
 <script src="ui/core.js"></script>
